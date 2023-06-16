@@ -1,10 +1,13 @@
-﻿using MachineLearning.PredictStock;
+﻿using MachineLearning.Common.TimeSeries;
+using MachineLearning.PredictStock;
 
 public class Program
 {
   public static void Main(string[] args)
   {
-    var predictor = new PredictStock();
-    predictor.DoIt();
+    var predictor = new StockPricePredictor();
+    predictor.SetBuilder(new StockPriceTimeSeriesBuilder());
+    
+    predictor.Predict();
   }
 }

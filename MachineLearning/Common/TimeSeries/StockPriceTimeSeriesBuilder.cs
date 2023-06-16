@@ -1,24 +1,36 @@
 ﻿using MachineLearning.Common.TimeSeries.Models;
-using Microsoft.Data.Analysis;
 using Microsoft.ML;
 using Microsoft.ML.Transforms.TimeSeries;
 
-namespace MachineLearning.PredictStock;
+namespace MachineLearning.Common.TimeSeries;
 
-[Obsolete]
-public class PredictStock
+public class StockPriceTimeSeriesBuilder : ITimeSeriesBuilder
 {
-  public void DoIt()
+  private MLContext _mlContext;
+  private IDataView _data;
+  private IDataView _testData;
+  private SsaForecastingTransformer _forecastingTransformer;
+
+  private string _dataPath;
+  private string _testDataPath;
+  private string _modelPath;
+
+  public ITimeSeriesBuilder Load()
   {
-    var fileName = "C:\\DotnetProjects\\MachineLearning\\MachineLearning\\FPT.csv";
-    var testFileName = "C:\\DotnetProjects\\MachineLearning\\MachineLearning\\test_FPT.csv";
-    var modelPath = "C:\\DotnetProjects\\MachineLearning\\MachineLearning\\predict_stock_model.zip";
-    
-    var mlContext = new MLContext();
-    IDataView data = mlContext.Data.LoadFromTextFile<ModelInput>(fileName, separatorChar: ',', hasHeader: true);
-    IDataView testData = mlContext.Data.LoadFromTextFile<ModelInput>(testFileName, separatorChar: ',', hasHeader: true);
-    
-    var forecastingPipeline = mlContext.Forecasting.ForecastBySsa(
+    _dataPath = "C:\\DotnetProjects\\MachineLearning\\MachineLearning\\FPT.csv";
+    _testDataPath = "C:\\DotnetProjects\\MachineLearning\\MachineLearning\\test_FPT.csv";
+    _modelPath = "C:\\DotnetProjects\\MachineLearning\\MachineLearning\\predict_stock_model.zip";
+
+    _mlContext = new MLContext();
+    _data = _mlContext.Data.LoadFromTextFile<ModelInput>(_dataPath, separatorChar: ',', hasHeader: true);
+    _testData = _mlContext.Data.LoadFromTextFile<ModelInput>(_testDataPath, separatorChar: ',', hasHeader: true);
+
+    return this;
+  }
+
+  public ITimeSeriesBuilder Train()
+  {
+    var forecastingPipeline = _mlContext.Forecasting.ForecastBySsa(
       outputColumnName: "ForecastedValues",
       inputColumnName: "Close",
       windowSize: 7,
@@ -29,24 +41,19 @@ public class PredictStock
       confidenceLowerBoundColumn: "LowerBoundValues",
       confidenceUpperBoundColumn: "UpperBoundValues");
     
-    SsaForecastingTransformer forecaster = forecastingPipeline.Fit(data);
-    
-    Evaluate(testData, forecaster, mlContext);
-    
-    var forecastEngine = forecaster.CreateTimeSeriesEngine<ModelInput, ModelOutput>(mlContext);
-    forecastEngine.CheckPoint(mlContext, modelPath);
-    
-    Forecast(testData, 7, forecastEngine, mlContext);
+    _forecastingTransformer = forecastingPipeline.Fit(_data);
+
+    return this;
   }
-  
-  void Evaluate(IDataView testData, ITransformer model, MLContext mlContext)
+
+  public ITimeSeriesBuilder Evaluate()
   {
-    IDataView predictions = model.Transform(testData);
+    IDataView predictions = _forecastingTransformer.Transform(_testData);
     IEnumerable<float> actual =
-      mlContext.Data.CreateEnumerable<ModelInput>(testData, true)
+      _mlContext.Data.CreateEnumerable<ModelInput>(_testData, true)
         .Select(observed => observed.Close);
     IEnumerable<float> forecast =
-      mlContext.Data.CreateEnumerable<ModelOutput>(predictions, true)
+      _mlContext.Data.CreateEnumerable<ModelOutput>(predictions, true)
         .Select(prediction => prediction.ForecastedValues[0]);
     var metrics = actual.Zip(forecast, (actualValue, forecastValue) => actualValue - forecastValue);
     var MAE = metrics.Average(error => Math.Abs(error)); // Mean Absolute Error
@@ -55,14 +62,26 @@ public class PredictStock
     Console.WriteLine("---------------------");
     Console.WriteLine($"Mean Absolute Error: {MAE:F3}");
     Console.WriteLine($"Root Mean Squared Error: {RMSE:F3}\n");
+
+    return this;
   }
-  
-  void Forecast(IDataView testData, int horizon, TimeSeriesPredictionEngine<ModelInput, ModelOutput> forecaster, MLContext mlContext)
+
+  public ITimeSeriesBuilder CheckPoint()
   {
-    ModelOutput forecast = forecaster.Predict();
+    var forecastEngine = _forecastingTransformer.CreateTimeSeriesEngine<ModelInput, ModelOutput>(_mlContext);
+    forecastEngine.CheckPoint(_mlContext, _modelPath);
+
+    return this;
+  }
+
+  public void Predict()
+  {
+    var forecastEngine = _forecastingTransformer.CreateTimeSeriesEngine<ModelInput, ModelOutput>(_mlContext);
+
+    ModelOutput forecast = forecastEngine.Predict();
     IEnumerable<string> forecastOutput =
-      mlContext.Data.CreateEnumerable<ModelInput>(testData, reuseRowObject: false)
-        .Take(horizon)
+      _mlContext.Data.CreateEnumerable<ModelInput>(_testData, reuseRowObject: false)
+        .Take(7)
         .Select((ModelInput rental, int index) =>
         {
           string rentalDate = rental.Date;

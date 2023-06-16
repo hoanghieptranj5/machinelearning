@@ -1,4 +1,4 @@
-﻿namespace MachineLearning.PredictStock.Models;
+﻿namespace MachineLearning.Common.TimeSeries.Models;
 
 public class ModelOutput
 {
